@@ -75,6 +75,7 @@
     - community.vmware.vmware_deploy_ovf:
         url: "http://{{ httpova }}/{{ vcenterova }}"
         datacenter: "{{ vc_datacenter }}"
+        cluster: "{{ vc_cluster }}"
         name: '{{ host_fact_hostname }}'
         enable_hidden_properties: true
         folder: "{{ vc_datacenter }}/vm/{{ vc_folder }}"
