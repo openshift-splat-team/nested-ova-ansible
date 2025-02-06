@@ -51,6 +51,7 @@
       community.vmware.vmware_deploy_ovf:
         url: "http://{{ httpova }}/{{ esxiova }}"
         power_on: false
+        cluster: "{{ vc_cluster }}"
         datacenter: "{{ vc_datacenter }}"
         name: '{{ host_fact_hostname }}'
         enable_hidden_properties: true
@@ -85,8 +86,13 @@
         state: present
         hardware:
           memory_mb: "{{ esximemory }}"
+          num_cpu_cores_per_socket: "{{ esxicpu }}"
           num_cpus: "{{ esxicpu }}"
           nested_virt: true
+          version: 21
+          cpu_shares_level: high
+          mem_shares_level: high
+
 
 - name: "Does ESXi virtual machine {{ host_fact_hostname }} exist"
   community.vmware.vmware_guest:
