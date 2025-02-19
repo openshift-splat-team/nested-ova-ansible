@@ -23,7 +23,7 @@ vc_vcenter_host_map: {}
 
 vc_nfs_shares: 
 - {
-  "server": "161.26.99.159",
+  "server": "fsf-dal1003h-fz.adn.networklayer.com",
   "name": "dsnested",
   "path": "/DSW02SEV2284482_22/data01",
   'type': 'nfs41', 
