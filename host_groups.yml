@@ -11,7 +11,7 @@
   block:
     - name: "Create DRS Host group variables"
       vars:
-        affinty_type: "{{ item.zoneAffinity | default('ComputeCluster') }}"
+        affinty_type: "{{ item.zoneType | default('ComputeCluster') }}"
       ansible.builtin.set_fact:
         host_group_map: "{{ host_group_map | default({}) | combine({item.name: []}) }}"
       when: "item.server == vcenter and affinty_type == 'HostGroup'"
@@ -19,7 +19,7 @@
 
     - name: "Populate DRS Host group variables"
       vars:
-        affinty_type: "{{ item.zoneAffinity | default('ComputeCluster') }}"
+        affinty_type: "{{ item.zoneType | default('ComputeCluster') }}"
       ansible.builtin.set_fact:
         host_group_map: "{{ host_group_map | default({}) | combine({item.name: host_group_map[item.name] + [hostvars[groups['esxi'][fd_idx]].NESTEDVMIP]}) }}"
       when: "item.server == vcenter and affinty_type == 'HostGroup'"
@@ -29,7 +29,7 @@
 
     - name: "Create DRS Host group"
       vars:
-        affinty_type: "{{ item.zoneAffinity | default('ComputeCluster') }}"
+        affinty_type: "{{ item.zoneType | default('ComputeCluster') }}"
       community.vmware.vmware_drs_group:
         cluster_name: '{{ item.topology.computeCluster.split("/")[-1] }}'
         datacenter_name: "{{ item.topology.datacenter }}"
