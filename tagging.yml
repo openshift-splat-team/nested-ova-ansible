@@ -33,6 +33,7 @@
         category_cardinality: "single"
         associable_object_types:
           - "Datacenter"
+          - "Cluster"
 
     - name: Create region tags
       community.vmware.vmware_tag:
