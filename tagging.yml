@@ -48,7 +48,7 @@
 
     - name: Attach Region Tags
       vars:
-        affinty_type: "{{ item.regionAffinity | default('Datacenter') }}"
+        affinty_type: "{{ item.regionType | default('Datacenter') }}"
         resourceName: '{{ {"Datacenter": item.topology.datacenter, "ComputeCluster": item.topology.computeCluster.split("/")[-1]} }}'
       community.vmware.vmware_tag_manager:
         object_name: "{{ resourceName[affinty_type] }}"
@@ -64,7 +64,7 @@
 
     - name: Attach Zone Tags
       vars:
-        affinty_type: "{{ item.zoneAffinity | default('ComputeCluster') }}"
+        affinty_type: "{{ item.zoneType | default('ComputeCluster') }}"
         resourceName: '{{ {"Datacenter": item.topology.datacenter, "ComputeCluster": item.topology.computeCluster.split("/")[-1]} }}'
       community.vmware.vmware_tag_manager:
         object_name: "{{ resourceName[affinty_type] }}"
@@ -80,7 +80,7 @@
 
     - name: Attach host tags
       vars:
-        affinty_type: "{{ item.zoneAffinity | default('') }}"
+        affinty_type: "{{ item.zoneType | default('') }}"
       community.vmware.vmware_tag_manager:
         object_name: "{{ hostvars[groups['esxi'][fd_idx]].NESTEDVMIP }}"
         object_type: "HostSystem"
