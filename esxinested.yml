@@ -47,43 +47,18 @@
         NESTEDVMIP: "{{ nested_vm.instance.guest.ipAddress }}"
 
   rescue:
-    - name: "Deploy ESXi VM"
-      community.vmware.vmware_deploy_ovf:
-        url: "http://{{ httpova }}/{{ esxiova }}"
-        power_on: false
-        cluster: "{{ vc_cluster }}"
+    - name: Clone ESXi
+      community.vmware.vmware_guest:
+        template: "{{ esxiova }}-{{ vc_cluster | split('/') | last }}"
+        state: poweredoff
+        cluster: "{{ vc_cluster | split('/') | last }}"
         datacenter: "{{ vc_datacenter }}"
         name: '{{ host_fact_hostname }}'
-        enable_hidden_properties: true
-        folder: "{{ vc_datacenter }}/vm/{{ vc_folder }}"
+        folder: "{{ vc_folder }}"
         datastore: "{{ vc_datastore }}"
-        disk_provisioning: thin
-        networks:
-          "VM Network": "{{ vc_fact_deployment_network }}"
-        wait_for_ip_address: true
-        validate_certs: false
-        inject_ovf_env: true
-        properties:
-          guestinfo.password: "{{ vc_fact_password }}" # SSO Password for administrator@vsphere.local
-
-    - name: "Add disk to virtual machine {{ host_fact_hostname }} version {{ version }}"
-      community.vmware.vmware_guest_disk:
-        datacenter: "{{ vc_datacenter }}"
-        name: "{{ host_fact_hostname }}"
-        disk:
-          - size_gb: "{{ esxidisk }}"
-            type: thin
-            datastore: "{{ vc_datastore }}"
-            state: present
-            scsi_controller: 0
-            unit_number: 2
-
-    - name: "MODIFY cpu/memory virtual machine {{ host_fact_hostname }} version {{ version }}"
-      community.vmware.vmware_guest:
-        datacenter: "{{ vc_datacenter }}"
-        folder: "{{ vc_datacenter }}/vm/{{ vc_folder }}"
-        name: "{{ host_fact_hostname }}"
-        state: present
+        vapp_properties:
+        - id: guestinfo.password
+          value: "{{ vc_fact_password }}" # SSO Password for administrator@vsphere.local
         hardware:
           memory_mb: "{{ esximemory }}"
           num_cpu_cores_per_socket: "{{ esxicpu }}"
@@ -93,13 +68,26 @@
           cpu_shares_level: high
           mem_shares_level: high
 
+# vmware_guest fails to enable nics correctly
+# so change the networks via vmware_guest_network
 
-- name: "Does ESXi virtual machine {{ host_fact_hostname }} exist"
-  community.vmware.vmware_guest:
+- name: add and enable guest networks
+  community.vmware.vmware_guest_network:
     datacenter: "{{ vc_datacenter }}"
-    folder: "{{ vc_datacenter }}/vm/{{ vc_folder }}"
     name: "{{ host_fact_hostname }}"
     state: present
+    network_name: "{{ item.network_name | default(omit) }}"
+    connected: "{{ item.connected | default(omit) }}"
+    label:  "{{ item.label | default(omit) }}"
+    device_type: vmxnet3
+  loop:
+    - network_name: "{{ vc_fact_deployment_network }}"
+      connected: true
+      label: "Network adapter 1"
+    - network_name: "{{ vc_fact_deployment_network }}"
+      connected: true
+      label: "Network adapter 2"
+
 
 - name: "poweron virtual machine {{ host_fact_hostname }} version {{ version }}"
   community.vmware.vmware_guest:
@@ -107,6 +95,7 @@
     folder: "{{ vc_datacenter }}/vm/{{ vc_folder }}"
     name: "{{ host_fact_hostname }}"
     state: poweredon
+    wait_for_ip_address: true
   register: presults
 
 - name: Retrieve guest info
