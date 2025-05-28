@@ -97,6 +97,9 @@
           guestinfo.cis.deployment.autoconfig: 'True' # Auto-configure after deployment
           guestinfo.cis.appliance.root.shell: 'True'
       register: nested_vm
+      retries: 5
+      delay: 30
+      until: nested_vm is succeeded
 
     - name: Pause while reboots itself
       ansible.builtin.pause:
