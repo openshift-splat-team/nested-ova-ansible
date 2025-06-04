@@ -126,6 +126,11 @@
       username: "{{ vc_username }}"
       password: "{{ vc_password }}"
       validate_certs: false
+    vmware.vmware.deploy_content_library_ovf:
+      hostname: "{{ vc_hostname }}"
+      username: "{{ vc_username }}"
+      password: "{{ vc_password }}"
+      validate_certs: false
   tasks:
     - name: Provision vCenter VMs
       ansible.builtin.include_tasks: vcnested.yml
