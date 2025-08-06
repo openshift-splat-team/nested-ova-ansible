@@ -1,6 +1,6 @@
 # nested-ova-ansible
 
-Provisions nested vCenter and ESXi hosts.
+Canonical repo for nested-ova-ansible in CI. Provisions nested vCenter and ESXi hosts.
 
 ## Prerequisites
 
