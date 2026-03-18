@@ -1,0 +1,214 @@
+---
+# Deploy vCenter VM from content library with idempotent check-before-create pattern
+
+- name: "vCenter {{ vcenter_vm.name }} - Set resource values"
+  ansible.builtin.set_fact:
+    vsphere_vm_deploy_vcenter_memory_mb_var: "{{ vcenter_vm.memory_mb | default(vsphere_vm_deploy_vcenter_memory_mb) }}"
+    vsphere_vm_deploy_vcenter_cpu_var: "{{ vcenter_vm.cpu | default(vsphere_vm_deploy_vcenter_cpu) }}"
+    vsphere_vm_deploy_vcenter_deployment_size_var: "{{ vcenter_vm.deployment_size | default(vsphere_vm_deploy_vcenter_deployment_size) }}"
+    vsphere_vm_deploy_vcenter_network_var: "{{ vcenter_vm.network | default(vsphere_vm_deploy_parent_vcenter.network) }}"
+    vsphere_vm_deploy_vcenter_ova_name_var: "{{ vsphere_vm_deploy_vcenter_ova_name | regex_replace('\\.ova$', '') }}"
+    vsphere_vm_deploy_vcenter_guest_id_var: "{{ vsphere_vm_deploy_guest_id_v8 if '8' in vsphere_vm_deploy_vcenter_ova_name else vsphere_vm_deploy_guest_id_v7 }}"
+
+- name: "vCenter {{ vcenter_vm.name }} - Log deployment parameters"
+  ansible.builtin.debug:
+    msg: >-
+      Deploying vCenter VM: {{ vcenter_vm.name }},
+      Size: {{ vsphere_vm_deploy_vcenter_deployment_size_var }},
+      Memory: {{ vsphere_vm_deploy_vcenter_memory_mb_var }}MB,
+      CPU: {{ vsphere_vm_deploy_vcenter_cpu_var }}
+  when: vsphere_vm_deploy_debug
+
+- name: "vCenter {{ vcenter_vm.name }} - Check if VM already exists"
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ vcenter_vm.name }}"
+  register: vsphere_vm_deploy_vcenter_vm_info
+  failed_when: false
+  changed_when: false
+
+- name: "vCenter {{ vcenter_vm.name }} - Deploy from content library"
+  block:
+    - name: "vCenter {{ vcenter_vm.name }} - Deploy OVF from content library"
+      vmware.vmware.deploy_content_library_ovf:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        library_name: "{{ vsphere_vm_deploy_content_library }}"
+        library_item_name: "{{ vsphere_vm_deploy_vcenter_ova_name_var }}"
+        vm_name: "{{ vcenter_vm.name }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        cluster: "{{ vsphere_vm_deploy_parent_vcenter.cluster }}"
+        datastore: "{{ vsphere_vm_deploy_parent_vcenter.datastore }}"
+        folder: "{{ vsphere_vm_deploy_parent_vcenter.folder }}"
+      register: vsphere_vm_deploy_vcenter_deploy_result
+
+    - name: "vCenter {{ vcenter_vm.name }} - Configure network adapter"
+      community.vmware.vmware_guest_network:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        name: "{{ vcenter_vm.name }}"
+        state: present
+        network_name: "{{ vsphere_vm_deploy_vcenter_network_var }}"
+        connected: true
+        label: "Network adapter 1"
+        device_type: "{{ vsphere_vm_deploy_network_adapter_type }}"
+
+    - name: "vCenter {{ vcenter_vm.name }} - Configure vApp properties"
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        name: "{{ vcenter_vm.name }}"
+        vapp_properties: "{{ _vcenter_vapp_properties }}"
+      vars:
+        _vcenter_vapp_base:
+          - id: DeploymentOption.value
+            value: "{{ vsphere_vm_deploy_vcenter_deployment_size_var }}"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.net.addr.family
+            value: ipv4
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.root.passwd
+            value: "{{ vsphere_vm_deploy_nested_password }}"
+            userConfigurable: true
+          - id: guestinfo.cis.vmdir.password
+            value: "{{ vsphere_vm_deploy_nested_password }}"
+            userConfigurable: true
+          - id: domain
+            value: "{{ vsphere_vm_deploy_nested_vcenter_domain }}"
+            userConfigurable: true
+          - id: guestinfo.cis.deployment.autoconfig
+            value: "True"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.root.shell
+            value: "True"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.ssh.enabled
+            value: "True"
+            userConfigurable: true
+        _vcenter_vapp_static:
+          - id: guestinfo.cis.appliance.net.mode
+            value: "static"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.net.addr
+            value: "{{ vcenter_vm.ip }}"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.net.prefix
+            value: "{{ (vcenter_vm.ip ~ '/' ~ vcenter_vm.mask) | ansible.utils.ipaddr('prefix') | string }}"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.net.gateway
+            value: "{{ vcenter_vm.gw }}"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.net.dns.servers
+            value: "{{ vcenter_vm.dns }}"
+            userConfigurable: true
+          - id: guestinfo.cis.appliance.ntp.servers
+            value: "{{ vcenter_vm.ntp | default('time.google.com') }}"
+            userConfigurable: true
+        _vcenter_vapp_dhcp:
+          - id: guestinfo.cis.appliance.net.mode
+            value: dhcp
+            userConfigurable: true
+        _vcenter_vapp_properties: "{{ _vcenter_vapp_base + (_vcenter_vapp_static if vcenter_vm.ip is defined else _vcenter_vapp_dhcp) }}"
+      register: vsphere_vm_deploy_vcenter_vapp_result
+
+    - name: "vCenter {{ vcenter_vm.name }} - Power on to apply vApp properties"
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        name: "{{ vcenter_vm.name }}"
+        state: poweredon
+      when: vsphere_vm_deploy_vcenter_vapp_result.changed
+
+  when: vsphere_vm_deploy_vcenter_vm_info.instance is not defined or vsphere_vm_deploy_force_recreate | bool
+
+- name: "vCenter {{ vcenter_vm.name }} - Update existing VM (if needed)"
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ vcenter_vm.name }}"
+    state: present
+    hardware:
+      memory_mb: "{{ vsphere_vm_deploy_vcenter_memory_mb_var }}"
+      num_cpus: "{{ vsphere_vm_deploy_vcenter_cpu_var }}"
+  register: vsphere_vm_deploy_vcenter_update_result
+  when:
+    - vsphere_vm_deploy_vcenter_vm_info.instance is defined
+    - not (vsphere_vm_deploy_force_recreate | bool)
+  changed_when: vsphere_vm_deploy_vcenter_update_result.changed | default(false)
+
+- name: "vCenter {{ vcenter_vm.name }} - Power on VM"
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    name: "{{ vcenter_vm.name }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    folder: "{{ vsphere_vm_deploy_parent_vcenter.folder }}"
+    datastore: "{{ vsphere_vm_deploy_parent_vcenter.datastore }}"
+    state: poweredon
+    wait_for_ip_address: true
+    wait_for_ip_address_timeout: "{{ vsphere_vm_deploy_wait_for_ip_timeout }}"
+  register: vsphere_vm_deploy_vcenter_poweron_result
+
+- name: "vCenter {{ vcenter_vm.name }} - Get VM info with IP address"
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ vcenter_vm.name }}"
+  register: vsphere_vm_deploy_vcenter_vm_final_info
+  until: >-
+    vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 is defined and
+    vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 is not none and
+    vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 | length > 0
+  retries: "{{ vsphere_vm_deploy_wait_for_ip_retries }}"
+  delay: "{{ vsphere_vm_deploy_wait_for_ip_delay }}"
+  changed_when: false
+
+- name: "vCenter {{ vcenter_vm.name }} - Log IP address"
+  ansible.builtin.debug:
+    msg: "vCenter {{ vcenter_vm.name }} deployed successfully with IP: {{ vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 }}"
+
+- name: "vCenter {{ vcenter_vm.name }} - Add to dynamic inventory"
+  ansible.builtin.add_host:
+    name: "{{ vcenter_vm.name }}"
+    groups: deployed_vcenter
+    ansible_host: "{{ vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 }}"
+    vcenter_ip: "{{ vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 }}"
+    vcenter_username: "administrator@{{ vsphere_vm_deploy_nested_vcenter_domain }}"
+    vcenter_password: "{{ vsphere_vm_deploy_nested_password }}"
+
+- name: "vCenter {{ vcenter_vm.name }} - Wait for vCenter API to be ready"
+  community.vmware.vmware_about_info:
+    hostname: "{{ vsphere_vm_deploy_vcenter_vm_final_info.instance.ipv4 }}"
+    username: "administrator@{{ vsphere_vm_deploy_nested_vcenter_domain }}"
+    password: "{{ vsphere_vm_deploy_nested_password }}"
+    validate_certs: false
+  retries: 30
+  delay: 60
+  register: vsphere_vm_deploy_vcenter_api_result
+  until: vsphere_vm_deploy_vcenter_api_result is succeeded
+
+- name: "vCenter {{ vcenter_vm.name }} - Log vCenter version"
+  ansible.builtin.debug:
+    msg: "vCenter {{ vcenter_vm.name }} is ready - Version: {{ vsphere_vm_deploy_vcenter_api_result.about_info.fullName | default('Unknown') }}"

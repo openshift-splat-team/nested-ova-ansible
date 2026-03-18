@@ -1,0 +1,49 @@
+---
+extends: default
+
+rules:
+  line-length:
+    max: 200
+    level: warning
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  comments-indentation: disable
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+
+ignore: |
+  # Old v1 files (not part of v2)
+  addhosts_vcenter.yml
+  cronjob.yml
+  create_datastore.yml
+  dvs_hosts_vcenter.yml
+  esxinested.yml
+  getcerts.yml
+  host_groups.yml
+  main.yml
+  nfshostip.yml
+  packlocal.yml
+  platform.example.yaml
+  tagging.yml
+  vcnested.yml
+  vsphere_remove.yml
+  # Generated and cache directories
+  .github/
+  .ansible/
+  .venv/
+  venv/
+  v1_backup_*/
+  state/
+  molecule/
+  .cache/
+  __pycache__/

@@ -1,0 +1,217 @@
+---
+# Deploy ESXi VM from template with idempotent check-before-create pattern
+
+- name: "ESXi {{ esxi_host.name }} - Set resource values"
+  ansible.builtin.set_fact:
+    vsphere_vm_deploy_esxi_memory_mb_var: "{{ esxi_host.memory_mb | default(vsphere_vm_deploy_esxi_memory_mb) }}"
+    vsphere_vm_deploy_esxi_cpu_var: "{{ esxi_host.cpu | default(vsphere_vm_deploy_esxi_cpu) }}"
+    vsphere_vm_deploy_esxi_disk_gb_var: "{{ esxi_host.disk_gb | default(vsphere_vm_deploy_esxi_disk_gb) }}"
+    vsphere_vm_deploy_esxi_networks_var: "{{ [{'name': vsphere_vm_deploy_parent_vcenter.network, 'connected': true}] * vsphere_vm_deploy_esxi_network_adapters }}"
+    vsphere_vm_deploy_esxi_template_name: "{{ esxi_template_name | default(vsphere_vm_deploy_esxi_template_prefix ~ '-' ~ vsphere_vm_deploy_parent_vcenter.cluster) }}"
+
+- name: "ESXi {{ esxi_host.name }} - Log deployment parameters"
+  ansible.builtin.debug:
+    msg: "Deploying ESXi VM: {{ esxi_host.name }}, Memory: {{ vsphere_vm_deploy_esxi_memory_mb_var }}MB, CPU: {{ vsphere_vm_deploy_esxi_cpu_var }}, Disk: {{ vsphere_vm_deploy_esxi_disk_gb_var }}GB"
+  when: vsphere_vm_deploy_debug
+
+- name: "ESXi {{ esxi_host.name }} - Check if VM already exists"
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ esxi_host.name }}"
+  register: vsphere_vm_deploy_esxi_vm_info
+  failed_when: false
+  changed_when: false
+
+- name: "ESXi {{ esxi_host.name }} - Deploy from content library or template"
+  block:
+    - name: "ESXi {{ esxi_host.name }} - Deploy OVF from content library"
+      vmware.vmware.deploy_content_library_ovf:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        library_name: "{{ vsphere_vm_deploy_esxi_content_library | default(vsphere_vm_deploy_content_library) }}"
+        library_item_name: "{{ vsphere_vm_deploy_esxi_template_item }}"
+        vm_name: "{{ esxi_host.name }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        cluster: "{{ vsphere_vm_deploy_parent_vcenter.cluster }}"
+        datastore: "{{ vsphere_vm_deploy_parent_vcenter.datastore }}"
+        folder: "{{ vsphere_vm_deploy_parent_vcenter.folder }}"
+      register: vsphere_vm_deploy_esxi_deploy_result
+      when: vsphere_vm_deploy_use_content_library | default(false) | bool
+
+    - name: "ESXi {{ esxi_host.name }} - Configure vApp properties (content library)"
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        name: "{{ esxi_host.name }}"
+        state: present
+        vapp_properties:
+          - id: guestinfo.password
+            value: "{{ vsphere_vm_deploy_nested_password }}"
+        hardware:
+          memory_mb: "{{ vsphere_vm_deploy_esxi_memory_mb_var }}"
+          num_cpus: "{{ vsphere_vm_deploy_esxi_cpu_var }}"
+          nested_virt: true
+          version: "{{ vsphere_vm_deploy_vm_version }}"
+          cpu_shares_level: "{{ vsphere_vm_deploy_cpu_shares_level }}"
+          mem_shares_level: "{{ vsphere_vm_deploy_mem_shares_level }}"
+      when: vsphere_vm_deploy_use_content_library | default(false) | bool
+
+    - name: "ESXi {{ esxi_host.name }} - Clone from template"
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        template: "{{ vsphere_vm_deploy_esxi_template_name }}"
+        state: poweredoff
+        cluster: "{{ vsphere_vm_deploy_parent_vcenter.cluster }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        name: "{{ esxi_host.name }}"
+        folder: "{{ vsphere_vm_deploy_parent_vcenter.folder }}"
+        datastore: "{{ vsphere_vm_deploy_parent_vcenter.datastore }}"
+        vapp_properties:
+          - id: guestinfo.password
+            value: "{{ vsphere_vm_deploy_nested_password }}"
+        hardware:
+          memory_mb: "{{ vsphere_vm_deploy_esxi_memory_mb_var }}"
+          num_cpu_cores_per_socket: "{{ vsphere_vm_deploy_esxi_cpu_var }}"
+          num_cpus: "{{ vsphere_vm_deploy_esxi_cpu_var }}"
+          nested_virt: true
+          version: "{{ vsphere_vm_deploy_vm_version }}"
+          cpu_shares_level: "{{ vsphere_vm_deploy_cpu_shares_level }}"
+          mem_shares_level: "{{ vsphere_vm_deploy_mem_shares_level }}"
+      register: vsphere_vm_deploy_esxi_deploy_result
+      when: not (vsphere_vm_deploy_use_content_library | default(false) | bool)
+
+    - name: "ESXi {{ esxi_host.name }} - Configure network adapters"
+      community.vmware.vmware_guest_network:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        name: "{{ esxi_host.name }}"
+        state: present
+        network_name: "{{ item.name }}"
+        connected: "{{ item.connected | default(true) }}"
+        label: "Network adapter {{ idx + 1 }}"
+        device_type: "{{ vsphere_vm_deploy_network_adapter_type }}"
+      loop: "{{ vsphere_vm_deploy_esxi_networks_var }}"
+      loop_control:
+        index_var: idx
+        label: "{{ item.name }}"
+
+    - name: "ESXi {{ esxi_host.name }} - Resize additional disk"
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+        username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+        password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+        validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+        name: "{{ esxi_host.name }}"
+        datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+        disk:
+          - unit_number: "{{ vsphere_vm_deploy_disk_unit_number }}"
+            controller_number: "{{ vsphere_vm_deploy_disk_controller_number }}"
+            controller_type: "{{ vsphere_vm_deploy_disk_controller_type }}"
+            size_gb: "{{ vsphere_vm_deploy_esxi_disk_gb_var }}"
+            type: "{{ vsphere_vm_deploy_disk_type }}"
+        state: present
+      when: vsphere_vm_deploy_esxi_disk_gb_var | int > 0
+
+  when: vsphere_vm_deploy_esxi_vm_info.instance is not defined or vsphere_vm_deploy_force_recreate | bool
+
+- name: "ESXi {{ esxi_host.name }} - Update existing VM hardware (if needed)"
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ esxi_host.name }}"
+    state: present
+    hardware:
+      memory_mb: "{{ vsphere_vm_deploy_esxi_memory_mb_var }}"
+      num_cpus: "{{ vsphere_vm_deploy_esxi_cpu_var }}"
+  register: vsphere_vm_deploy_esxi_update_result
+  when:
+    - vsphere_vm_deploy_esxi_vm_info.instance is defined
+    - not (vsphere_vm_deploy_force_recreate | bool)
+  changed_when: vsphere_vm_deploy_esxi_update_result.changed | default(false)
+
+- name: "ESXi {{ esxi_host.name }} - Power on VM"
+  community.vmware.vmware_guest:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    folder: "{{ vsphere_vm_deploy_parent_vcenter.folder }}"
+    datastore: "{{ vsphere_vm_deploy_parent_vcenter.datastore }}"
+    name: "{{ esxi_host.name }}"
+    state: poweredon
+    wait_for_ip_address: false
+  register: vsphere_vm_deploy_esxi_poweron_result
+
+- name: "ESXi {{ esxi_host.name }} - Wait for guest tools to be running"
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    name: "{{ esxi_host.name }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+  register: vsphere_vm_deploy_esxi_guest_info
+  until: vsphere_vm_deploy_esxi_guest_info.instance.guest_tools_status == "guestToolsRunning"
+  retries: "{{ vsphere_vm_deploy_wait_for_guest_tools_retries }}"
+  delay: "{{ vsphere_vm_deploy_wait_for_guest_tools_delay }}"
+  changed_when: false
+
+- name: "ESXi {{ esxi_host.name }} - Wait for IP address"
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vsphere_vm_deploy_parent_vcenter.hostname }}"
+    username: "{{ vsphere_vm_deploy_parent_vcenter.username }}"
+    password: "{{ vsphere_vm_deploy_parent_vcenter.password }}"
+    validate_certs: "{{ vsphere_vm_deploy_parent_vcenter.validate_certs }}"
+    datacenter: "{{ vsphere_vm_deploy_parent_vcenter.datacenter }}"
+    name: "{{ esxi_host.name }}"
+  register: vsphere_vm_deploy_esxi_vm_final_info
+  until: >-
+    vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 is defined and
+    vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 is not none and
+    vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 | length > 0
+  retries: "{{ vsphere_vm_deploy_wait_for_ip_retries }}"
+  delay: "{{ vsphere_vm_deploy_wait_for_ip_delay }}"
+  changed_when: false
+
+- name: "ESXi {{ esxi_host.name }} - Log IP address"
+  ansible.builtin.debug:
+    msg: "ESXi {{ esxi_host.name }} deployed successfully with IP: {{ vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 }}"
+
+- name: "ESXi {{ esxi_host.name }} - Add to dynamic inventory"
+  ansible.builtin.add_host:
+    name: "{{ esxi_host.name }}"
+    groups: deployed_esxi
+    ansible_host: "{{ vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 }}"
+    esxi_ip: "{{ vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 }}"
+    esxi_username: "root"
+    esxi_password: "{{ vsphere_vm_deploy_nested_password }}"
+
+- name: "ESXi {{ esxi_host.name }} - Wait for ESXi API to be ready"
+  community.vmware.vmware_about_info:
+    hostname: "{{ vsphere_vm_deploy_esxi_vm_final_info.instance.ipv4 }}"
+    username: "root"
+    password: "{{ vsphere_vm_deploy_nested_password }}"
+    validate_certs: false
+  retries: 30
+  delay: 20
+  register: vsphere_vm_deploy_esxi_api_result
+  until: vsphere_vm_deploy_esxi_api_result is succeeded

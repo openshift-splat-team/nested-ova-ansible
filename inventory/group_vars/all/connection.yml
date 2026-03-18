@@ -1,0 +1,12 @@
+---
+vsphere_parent_vcenter:
+  hostname: vcenter-110.ci.ibmc.devcluster.openshift.com
+  username: administrator@vsphere.local
+  password: "{{ vault_parent_vcenter_password }}"
+  datacenter: vcenter-110-dc01
+  cluster: vcenter-110-cl01
+  esxi_host: ci-vmware-host-110.ci.ibmc.devcluster.openshift.com
+  datastore: vcenter-110-cl01-ds-vsan01
+  folder: /nested
+  network: "ci-vlan-826-manual"
+  validate_certs: false

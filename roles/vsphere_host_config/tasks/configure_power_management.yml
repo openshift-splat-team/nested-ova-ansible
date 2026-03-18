@@ -1,0 +1,20 @@
+---
+# Configure power management policy for ESXi hosts
+
+- name: Set power management policy for all hosts in clusters
+  community.vmware.vmware_host_powermgmt_policy:
+    hostname: "{{ vsphere_host_config_vcenter.hostname }}"
+    username: "{{ vsphere_host_config_vcenter.username }}"
+    password: "{{ vsphere_host_config_vcenter.password }}"
+    validate_certs: "{{ vsphere_host_config_vcenter.validate_certs }}"
+    cluster_name: "{{ cluster_name }}"
+    policy: "{{ vsphere_host_config_power_policy }}"
+  loop: "{{ vsphere_host_config_esxi_hosts | map(attribute='cluster') | unique | list }}"
+  loop_control:
+    loop_var: cluster_name
+    label: "{{ cluster_name }}"
+
+- name: Log power management configuration
+  ansible.builtin.debug:
+    msg: "Power management policy set to {{ vsphere_host_config_power_policy }} for all clusters"
+  when: vsphere_host_config_debug
